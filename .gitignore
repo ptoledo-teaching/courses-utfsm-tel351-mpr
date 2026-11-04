@@ -1,0 +1,13 @@
+.venv/
+build/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+responses/
+response*.json
+images/local/
+/vision-api-key.txt
+credentials.json
+.env

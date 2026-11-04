@@ -1,0 +1,91 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: TEL351 MPR - Integracion sincronica de AWS y Google Cloud Vision.
+
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: mpr-operations
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: StoreLabObjects
+                Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub ${DataBucket.Arn}/uploads/*
+
+  AnalyzerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Recepcion y analisis sincronico de imagenes del laboratorio MPR.
+      Runtime: python3.14
+      Handler: index.lambda_handler
+      Role: !GetAtt ExecutionRole.Arn
+      Timeout: 90
+      Environment:
+        Variables:
+          DATA_BUCKET: !Ref DataBucket
+          GOOGLE_API_KEY: ''
+          LAB_STAGE: upload
+      Code:
+        ZipFile: |
+          import json
+
+          def lambda_handler(event, context):
+              return {
+                  "statusCode": 503,
+                  "headers": {"Content-Type": "application/json"},
+                  "body": json.dumps({"error": {
+                      "code": "MATERIALS_NOT_INSTALLED",
+                      "message": "Cargar lambda.zip desde la consola de Lambda."
+                  }})
+              }
+
+  PublicFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt AnalyzerFunction.Arn
+      AuthType: NONE
+
+  PublicUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AnalyzerFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  PublicInvocationPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AnalyzerFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  FunctionUrl:
+    Description: URL publica; la aplicacion recibe POST /analyze y GET /status.
+    Value: !GetAtt PublicFunctionUrl.FunctionUrl
+  FunctionName:
+    Description: Lambda function cuyo codigo se actualiza durante la actividad.
+    Value: !Ref AnalyzerFunction
+  DataBucketName:
+    Description: Bucket privado que conserva las imagenes originales.
+    Value: !Ref DataBucket
+  LogGroupName:
+    Description: Grupo creado automaticamente por Lambda al ejecutarse; eliminarlo despues del laboratorio.
+    Value: !Sub /aws/lambda/${AnalyzerFunction}
